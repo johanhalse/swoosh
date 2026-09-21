@@ -29,8 +29,18 @@ Metrics/MethodLength:
 Metrics/BlockLength:
   Max: 30
 
+# A public API's signature is its documentation: `generate_payment(amount, **)`
+# tells a caller nothing about what it accepts.
+Style/ArgumentsForwarding:
+  Enabled: false
+
 Style/Documentation:
   Enabled: false
+
+# A test that reads back several fields of one payload is one behaviour, not
+# four; splitting it would obscure what it checks.
+Minitest/MultipleAssertions:
+  Max: 5
 
 Style/StringLiterals:
   Enabled: true

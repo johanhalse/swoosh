@@ -1,5 +1,20 @@
 ## [Unreleased]
 
+- `generate_payment` returns a `Swoosh::Payment` carrying the id and the m-commerce token instead of
+  the response body, which was empty on success.
+- Add `Swoosh.find_payment`, `Payment#app_switch_url`, `Payment#qr_code` and status predicates.
+- Raise `Swoosh::RequestError` / `Swoosh::ServerError` on 4xx/5xx, carrying Swish's errorCode.
+- Add `Swoosh::Callback`, a plain module any framework can include, and `Swoosh::Callback::Controller`,
+  the Rails concern that supplies only `request.body.read`.
+- Add an opt-in token store (`Rails.cache` by default) for the m-commerce token, which Swish issues once.
+- Add `swoosh/test` with callback payload builders and WebMock stubs for host applications.
+
+- Build the payment payload from arguments instead of hardcoded Swish test values. `generate_payment`
+  now takes `amount` positionally and the rest as keywords, and omits absent fields rather than
+  sending null.
+- Add `payee_alias`, `callback_url` and `currency` configuration. `payee_alias` is per application
+  with a per-call override; `callback_url` is per call, with an optional configured default.
+
 - Find certificates by name: `swish_test.p12` / `swish_production.p12` in a configurable `cert_dir`.
   Staging falls back to the certificates bundled with the gem; production raises rather than falling back.
 - Add `Swoosh::Configuration` and `Swoosh.configure`, so the core no longer depends on Rails.

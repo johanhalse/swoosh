@@ -13,6 +13,7 @@ require "vcr"
 require "webmock/minitest"
 
 require_relative "../support/vcr"
+require "swoosh/test"
 
 module Swoosh
   module RailsTestHelper

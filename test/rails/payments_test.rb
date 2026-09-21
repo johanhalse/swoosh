@@ -31,4 +31,44 @@ class PaymentsTest < ActionDispatch::IntegrationTest
       payload["amount"] == 250 && payload["message"] == "Bulle"
     end
   end
+
+  test "the merchant number comes from config.swoosh without the call site naming it" do
+    VCR.use_cassette("create_payment") do
+      post payments_path, params: { amount: 100, message: "Kaffe" }
+    end
+
+    assert_equal "1231181189", sent_payload["payeeAlias"]
+  end
+
+  test "each payment type sends its own callback url" do
+    VCR.use_cassette("create_payment") do
+      post payments_path, params: { amount: 100, kind: "donation" }
+    end
+
+    assert_equal "https://dummy.test/swish/donations", sent_payload["callbackUrl"]
+  end
+
+  test "a different payment type sends a different callback url" do
+    VCR.use_cassette("create_payment") do
+      post payments_path, params: { amount: 100, kind: "order" }
+    end
+
+    assert_equal "https://dummy.test/swish/orders", sent_payload["callbackUrl"]
+  end
+
+  test "optional fields the app passes reach swish" do
+    VCR.use_cassette("create_payment") do
+      post payments_path, params: { amount: 100, reference: "order-42" }
+    end
+
+    assert_equal "order-42", sent_payload["payeePaymentReference"]
+  end
+
+  private
+
+  def sent_payload
+    body = nil
+    assert_requested(:put, %r{/api/v2/paymentrequests/}) { |request| body = request.body }
+    JSON.parse(body)
+  end
 end

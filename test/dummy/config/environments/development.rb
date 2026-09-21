@@ -53,4 +53,11 @@ Rails.application.configure do
   #
   # config.swoosh.cert_dir      = Rails.root.join("config/certs")
   # config.swoosh.cert_password = ENV["SWISH_CERT_PASSWORD"]
+  #
+  # Your merchant number, shared by every call. A call may still override it.
+  # config.swoosh.payee_alias = "1231181189"
+  #
+  # Set this only if every payment shares one callback endpoint; otherwise pass
+  # callback_url: per call.
+  # config.swoosh.callback_url = "https://example.com/swish/callbacks"
 end

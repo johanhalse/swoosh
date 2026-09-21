@@ -56,16 +56,170 @@ end
 | `cert_dir` | `Rails.root.join("config/certs")` |
 | `cert_password` | `"swish"` |
 | `root_ca_path` | the DigiCert root bundled with the gem |
+| `payee_alias` | none -- your Swish merchant number |
+| `callback_url` | none -- see below |
+| `currency` | `"SEK"` |
+| `token_store` | `Rails.cache`; `nil` disables |
+| `token_ttl` | 300 seconds |
 
 `environment` accepts `:test`, `:staging` (an alias for `:test`) and
 `:production`, as symbols or strings. Anything else raises
 `Swoosh::ConfigurationError` at boot.
 
-Then, anywhere in the app:
+## Creating a payment
 
 ```ruby
-Swoosh.generate_payment(100, "Kaffe")
+payment = Swoosh.generate_payment(
+  199,
+  callback_url:            swish_callbacks_url,
+  payee_payment_reference: order.ocr,      # your matching key, e.g. "ABC123"
+  message:                 "Order #{order.number}"
+)
+
+order.update!(swish_payment_id: payment.id)   # persist before you render anything
 ```
+
+`amount` is the only positional argument. Everything else is a keyword:
+
+| Keyword | |
+| --- | --- |
+| `callback_url` | HTTPS URL Swish posts the result to. Required. |
+| `payee_alias` | overrides the configured merchant number |
+| `message` | shown to the payer |
+| `payer_alias` | the payer's number. **Omit it** for the Swish-app flow, which is what issues a token |
+| `payee_payment_reference` | your own reference: `a-z A-Z 0-9 -_.+*/`, 1-36 characters |
+| `payer_ssn`, `age_limit` | passed through to Swish when given |
+| `currency` | defaults to `SEK` |
+
+Anything left out is omitted from the request rather than sent as null, which
+matters for `payer_alias`: sending it null breaks the Swish-app flow.
+
+A 4xx or 5xx raises `Swoosh::RequestError` / `Swoosh::ServerError`, carrying
+Swish's own code:
+
+```ruby
+rescue Swoosh::RequestError => e
+  e.status        # => 422
+  e.error_code    # => "BE18"
+  e.error_message # => "Payer alias is invalid"
+end
+```
+
+### payee_alias vs callback_url
+
+Your merchant number is the same everywhere, so configure it once. A call can
+still override it if you bill through more than one merchant.
+
+The callback is different: one application usually has several kinds of payment
+that want different endpoints, so **`callback_url` is per call**. Configure
+`callback_url` only if every payment in the app shares one endpoint -- leave it
+unset and Swoosh requires each call to name one.
+
+## Presenting the payment
+
+Both flows use the same token, so you decide at render time, not request time:
+
+```ruby
+# same device -- hand the payer to the Swish app
+redirect_to payment.app_switch_url(return_url: order_url(order))
+
+# other device -- show a QR code
+send_data payment.qr_code(size: 300), type: "image/png"
+```
+
+`qr_code` accepts `size:` (minimum 300, which Swish enforces), `format:` (`png`,
+`jpg`, `svg`), `border:` and `transparent:`. It is served from Swish's public QR
+host, so it needs no certificate.
+
+Supply `payer_alias` instead and Swish notifies that number directly; no token is
+issued and both methods above raise.
+
+The `return_url` is a **UX return only**. It tells you nothing about whether the
+payment succeeded, and in-app browsers drop it routinely.
+
+## Receiving the callback
+
+Swish POSTs the payment to your `callback_url` when it settles. **Swish does not
+sign these**, so anyone who guesses a payment id can post one. Verify before you
+act:
+
+```ruby
+class Swish::CallbacksController < ApplicationController
+  include Swoosh::Callback::Controller
+  skip_forgery_protection
+
+  def create
+    payment = swoosh_verified_payment              # re-fetched from Swish over mTLS
+    Order.find_by!(swish_payment_id: payment.id).settle! if payment.paid?
+    head :ok
+  end
+end
+```
+
+| | |
+| --- | --- |
+| `swoosh_callback` | the POSTed body, parsed. Unauthenticated -- fine for logging |
+| `swoosh_verified_payment` | asks Swish directly. Act on this one |
+
+Outside Rails, include the plain module and say where the body comes from:
+
+```ruby
+class CallbackHandler
+  include Swoosh::Callback
+
+  def initialize(body) = @body = body
+  def swoosh_callback_body = @body
+end
+```
+
+`Swoosh::Callback::Controller` is only that module plus `request.body.read`.
+
+## Polling
+
+```ruby
+payment = Swoosh.find_payment(order.swish_payment_id)
+payment.paid?      # also declined? cancelled? error?
+payment.pending?   # still CREATED
+payment.error_code # e.g. "TM01" when the payer ran out of time
+```
+
+**Swish delivers each callback exactly once and never retries.** A deploy or a
+brief 502 loses it permanently, so polling is not optional:
+
+- Your waiting page should poll **your** app, reading your own database. Never
+  block a request on Swish.
+- A background job sweeps anything still `CREATED` after ~3 minutes and calls
+  `find_payment`. That closes the gap.
+
+Since the callback controller also ends at a verified `Payment`, both paths run
+the same settling code -- make it idempotent once.
+
+Statuses are `CREATED`, `PAID`, `DECLINED`, `ERROR`, `CANCELLED`. A payer has
+three minutes to accept; after that Swish reports `ERROR` with code `TM01`.
+
+## What to persist
+
+Just the id:
+
+```ruby
+add_column :orders, :swish_payment_id, :string
+```
+
+Everything else comes back from `find_payment`. The one exception is the
+m-commerce token, which Swish returns once and never again -- so if you need it
+in a later request (a reload, an AJAX-rendered QR), Swoosh can keep it for you:
+
+```ruby
+Swoosh.token_for(order.swish_payment_id)   # => token, or nil
+```
+
+`nil` means "create a fresh payment request", never an error. In Rails this is
+backed by `Rails.cache` by default with a 5 minute TTL, since the token dies with
+the payment window anyway. Set `config.swoosh.token_store = nil` to turn it off.
+Losing a token costs the payer one extra tap; nothing about it is load-bearing.
+
+Statuses are deliberately **not** cached -- caching a `CREATED` would make your
+poller report stale results for a payment that has already settled.
 
 ## Without Rails
 
@@ -77,9 +231,10 @@ Swoosh.configure do |config|
   config.environment   = :production
   config.cert_dir      = "config/certs"
   config.cert_password = ENV["SWISH_CERT_PASSWORD"]
+  config.payee_alias   = "1231181189"
 end
 
-Swoosh.generate_payment(100, "Kaffe")
+Swoosh.generate_payment(100, callback_url: "https://example.com/swish", message: "Kaffe")
 ```
 
 ## Development

@@ -1,0 +1,36 @@
+---
+http_interactions:
+- request:
+    method: get
+    uri: https://mss.cpc.getswish.net/swish-cpcapi/api/v1/paymentrequests/308336F6A5A64350B73EA5DB33186ED0
+    body:
+      encoding: ASCII-8BIT
+      string: ''
+    headers:
+      Accept:
+      - application/json
+      Connection:
+      - close
+      Host:
+      - mss.cpc.getswish.net
+      User-Agent:
+      - http.rb/6.0.4
+  response:
+    status:
+      code: 200
+      message: OK
+    headers:
+      Content-Type:
+      - application/json
+      Transfer-Encoding:
+      - chunked
+      Date:
+      - Mon, 21 Sep 2026 09:09:41 GMT
+      Connection:
+      - close
+    body:
+      encoding: UTF-8
+      string: '{"id":"308336F6A5A64350B73EA5DB33186ED0","payeePaymentReference":"ABC123","paymentReference":"02B4DB066FFA4D8EBD738474747A1BAD","callbackUrl":"https://example.com/cb","payerAlias":"46464646464","payeeAlias":"1231181189","amount":199.00,"currency":"SEK","message":"Order
+        1","status":"CREATED","dateCreated":"2026-09-21T09:09:41.868Z","datePaid":null,"errorCode":null,"errorMessage":null}'
+  recorded_at: Mon, 21 Sep 2026 09:09:41 GMT
+recorded_with: VCR 6.4.0

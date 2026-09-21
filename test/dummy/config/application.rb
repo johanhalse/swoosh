@@ -34,6 +34,13 @@ module Dummy
     # ships an empty one; test/rails/*_test.rb writes into it.
     config.swoosh.cert_dir = Rails.root.join("config/certs")
 
+    # The merchant number is the same for the whole app, so it lives here.
+    # callback_url is deliberately left unset: each payment type names its own.
+    config.swoosh.payee_alias = "1231181189"
+
+    # Stands in for "settle the order" in the callback test.
+    config.x.settled_payments = []
+
     # Configuration for the application, engines, and railties goes here.
     #
     # These settings can be overridden in specific environments using the files

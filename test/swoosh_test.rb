@@ -11,8 +11,8 @@ class SwooshTest < Minitest::Test
   def test_generate_payment_delegates_to_the_configured_client
     Swoosh.client = FakeClient.new
 
-    assert_equal "ok", Swoosh.generate_payment(100, "Kaffe")
-    assert_equal [100, "Kaffe"], Swoosh.client.calls.first
+    assert_equal "ok", Swoosh.generate_payment(100, message: "Kaffe")
+    assert_equal [100, { message: "Kaffe" }], Swoosh.client.calls.first
   ensure
     Swoosh.client = nil
   end
@@ -24,8 +24,8 @@ class SwooshTest < Minitest::Test
       @calls = []
     end
 
-    def generate_payment(amount, message)
-      @calls << [amount, message]
+    def generate_payment(amount, **options)
+      @calls << [amount, options]
       "ok"
     end
   end
@@ -53,7 +53,7 @@ class SwooshMainTest < Minitest::Test
   end
 
   def test_data_builds_a_swish_payment_payload
-    data = @main.data(100, "Kaffe")
+    data = @main.data(100, message: "Kaffe")
 
     assert_equal 100, data[:amount]
     assert_equal "Kaffe", data[:message]
@@ -62,6 +62,82 @@ class SwooshMainTest < Minitest::Test
 
   def test_environment_is_exposed
     assert_equal :test, @main.environment
+  end
+end
+
+class SwooshPaymentRequestTest < Minitest::Test
+  def test_the_merchant_number_comes_from_configuration
+    assert_equal Swoosh::TestCerts::PAYEE_ALIAS, payload(100)[:payeeAlias]
+  end
+
+  def test_a_call_can_override_the_configured_merchant_number
+    assert_equal "9876543210", payload(100, payee_alias: "9876543210")[:payeeAlias]
+  end
+
+  def test_a_configured_merchant_number_is_required_when_the_call_omits_one
+    error = assert_raises(Swoosh::ConfigurationError) { bare_payload(100, callback_url: "https://x.test/cb") }
+
+    assert_match "payee_alias", error.message
+  end
+
+  def test_the_callback_url_is_per_call
+    assert_equal "https://shop.test/swish/subscriptions",
+                 payload(100, callback_url: "https://shop.test/swish/subscriptions")[:callbackUrl]
+  end
+
+  def test_the_callback_url_falls_back_to_configuration_when_one_is_set
+    assert_equal Swoosh::TestCerts::CALLBACK_URL, payload(100)[:callbackUrl]
+  end
+
+  def test_a_callback_url_is_required_when_nothing_configures_one
+    error = assert_raises(Swoosh::ConfigurationError) { bare_payload(100, payee_alias: "1231181189") }
+
+    assert_match "callback_url", error.message
+  end
+
+  def test_two_payment_types_can_use_different_callbacks_on_one_configuration
+    main = Swoosh::TestCerts.client
+
+    assert_equal "https://shop.test/orders", main.data(100, callback_url: "https://shop.test/orders")[:callbackUrl]
+    assert_equal "https://shop.test/donations", main.data(100, callback_url: "https://shop.test/donations")[:callbackUrl]
+  end
+
+  def test_it_carries_the_optional_swish_fields_when_given
+    data = payload(
+      100,
+      payer_alias: Swoosh::TestCerts::PAYER_ALIAS,
+      payee_payment_reference: "order-42",
+      age_limit: 18
+    )
+
+    assert_equal Swoosh::TestCerts::PAYER_ALIAS, data[:payerAlias]
+    assert_equal "order-42", data[:payeePaymentReference]
+    assert_equal 18, data[:ageLimit]
+  end
+
+  def test_it_omits_optional_fields_rather_than_sending_null
+    data = payload(100)
+
+    refute_includes data.keys, :payerAlias
+    refute_includes data.keys, :payeePaymentReference
+    refute_includes data.keys, :message
+  end
+
+  def test_currency_defaults_to_sek_and_is_overridable
+    assert_equal "SEK", payload(100)[:currency]
+    assert_equal "EUR", payload(100, currency: "EUR")[:currency]
+  end
+
+  private
+
+  def payload(amount, **options)
+    Swoosh::TestCerts.client.data(amount, **options)
+  end
+
+  def bare_payload(amount, **options)
+    Swoosh::PaymentRequest.new(
+      configuration: Swoosh::TestCerts.bare_configuration, amount: amount, **options
+    ).to_h
   end
 end
 
@@ -207,13 +283,13 @@ class SwooshCreatePaymentTest < Minitest::Test
   end
 
   def test_it_puts_the_payment_to_a_freshly_generated_instruction_id
-    VCR.use_cassette("create_payment") { @main.generate_payment(100, "Kaffe") }
+    VCR.use_cassette("create_payment") { @main.generate_payment(100, message: "Kaffe") }
 
     assert_requested :put, PAYMENT_REQUEST_URI
   end
 
   def test_it_sends_the_swish_payment_payload_as_json
-    VCR.use_cassette("create_payment") { @main.generate_payment(100, "Kaffe") }
+    VCR.use_cassette("create_payment") { @main.generate_payment(100, message: "Kaffe") }
 
     assert_requested(:put, PAYMENT_REQUEST_URI) do |request|
       payload = JSON.parse(request.body)
@@ -226,7 +302,7 @@ class SwooshCreatePaymentTest < Minitest::Test
   end
 
   def test_it_asks_for_a_json_response
-    VCR.use_cassette("create_payment") { @main.generate_payment(100, "Kaffe") }
+    VCR.use_cassette("create_payment") { @main.generate_payment(100, message: "Kaffe") }
 
     assert_requested(:put, PAYMENT_REQUEST_URI) do |request|
       request.headers["Accept"] == "application/json"
@@ -236,18 +312,130 @@ class SwooshCreatePaymentTest < Minitest::Test
   def test_swish_creates_the_payment_and_returns_its_location
     response = VCR.use_cassette("create_payment") do
       HTTP.headers(accept: "application/json")
-          .put("#{@main.url}/#{@main.uuid}", ssl_context: @main.ssl_context, json: @main.data(100, "Kaffe"))
+          .put("#{@main.url}/#{@main.uuid}", ssl_context: @main.ssl_context, json: @main.data(100, message: "Kaffe"))
     end
 
     assert_equal 201, response.status.code
     assert_match %r{/api/v1/paymentrequests/[0-9A-F]{32}\z}, response.headers["Location"]
   end
 
-  # Swish answers 201 with an empty body: the instruction id only comes back in
-  # the Location header, so the current return value carries nothing.
-  def test_generate_payment_returns_the_empty_response_body
-    body = VCR.use_cassette("create_payment") { @main.generate_payment(100, "Kaffe") }
+  def test_generate_payment_returns_a_payment_carrying_the_id_we_generated
+    payment = VCR.use_cassette("create_payment") { @main.generate_payment(100, message: "Kaffe") }
 
-    assert_empty body
+    assert_match(/\A[0-9A-F]{32}\z/, payment.id)
+    assert_equal Swoosh::Payment::CREATED, payment.status
+    assert_predicate payment, :pending?
+  end
+
+  def test_the_id_it_returns_is_the_one_it_sent
+    payment = VCR.use_cassette("create_payment") { @main.generate_payment(100, message: "Kaffe") }
+
+    assert_requested(:put, %r{/api/v2/paymentrequests/}) do |request|
+      request.uri.path.end_with?(payment.id)
+    end
+  end
+end
+
+class SwooshMcommerceTest < Minitest::Test
+  def setup
+    @main = Swoosh::TestCerts.client
+  end
+
+  def test_omitting_the_payer_yields_a_token
+    payment = create
+
+    assert_predicate payment, :token?
+    assert_match(/\A[0-9a-f]{32}\z/, payment.token)
+  end
+
+  def test_the_app_switch_url_carries_the_token_and_an_encoded_return_url
+    url = create.app_switch_url(return_url: "https://shop.test/orders/1?a=b")
+
+    assert_includes url, "swish://paymentrequest?token="
+    assert_includes url, "callbackurl=https%3A%2F%2Fshop.test%2Forders%2F1%3Fa%3Db"
+  end
+
+  def test_the_qr_code_comes_back_as_image_bytes
+    Swoosh::Test.stub_qr_code(body: "\x89PNG\r\n\x1a\nstub")
+    qr = create.qr_code(size: 300)
+
+    assert_equal "\x89PNG\r\n\x1a\nstub", qr
+  end
+
+  def test_an_ecommerce_payment_has_no_token_and_says_so_clearly
+    payment = Swoosh::Payment.new({ "id" => "X" })
+    error = assert_raises(Swoosh::Error) { payment.app_switch_url(return_url: "https://shop.test") }
+
+    assert_match "payer_alias", error.message
+  end
+
+  private
+
+  def create
+    VCR.use_cassette("create_payment_mcommerce") do
+      @main.generate_payment(199, callback_url: "https://example.com/cb", payee_payment_reference: "ABC123")
+    end
+  end
+end
+
+class SwooshFindPaymentTest < Minitest::Test
+  def setup
+    @main = Swoosh::TestCerts.client
+  end
+
+  def test_it_polls_swish_and_returns_the_payment
+    payment = VCR.use_cassette("find_payment") { @main.find_payment("F5E4E0A2F9CE4B4EB6C45C0A8E9D0F1A") }
+
+    assert_equal "CREATED", payment.status
+    assert_equal "ABC123", payment.payee_payment_reference
+    assert_in_delta 199.0, payment.amount
+  end
+
+  def test_it_reads_from_the_v1_endpoint
+    VCR.use_cassette("find_payment") { @main.find_payment("F5E4E0A2F9CE4B4EB6C45C0A8E9D0F1A") }
+
+    assert_requested :get, %r{/api/v1/paymentrequests/}
+  end
+end
+
+class SwooshErrorTest < Minitest::Test
+  def setup
+    @main = Swoosh::TestCerts.client
+  end
+
+  def test_an_invalid_request_raises_with_the_swish_error_code
+    error = assert_raises(Swoosh::RequestError) do
+      VCR.use_cassette("create_payment_invalid") do
+        @main.generate_payment(50, callback_url: "https://example.com/cb", payer_alias: "nope")
+      end
+    end
+
+    assert_equal 422, error.status
+    assert_equal "BE18", error.error_code
+    assert_equal "Payer alias is invalid", error.error_message
+  end
+
+  def test_the_message_names_the_status_and_the_swish_error
+    error = assert_raises(Swoosh::RequestError) do
+      VCR.use_cassette("create_payment_invalid") do
+        @main.generate_payment(50, callback_url: "https://example.com/cb", payer_alias: "nope")
+      end
+    end
+
+    assert_match "422", error.message
+    assert_match "BE18", error.message
+  end
+
+  def test_a_server_error_is_distinguishable_from_a_request_error
+    assert_operator Swoosh::ServerError, :<, Swoosh::ResponseError
+    assert_operator Swoosh::RequestError, :<, Swoosh::ResponseError
+  end
+
+  def test_a_non_json_body_still_produces_a_usable_error
+    error = Swoosh::ResponseError.new(status: 503, body: "<html>nope</html>")
+
+    assert_equal 503, error.status
+    assert_empty error.errors
+    assert_match "503", error.message
   end
 end
