@@ -174,6 +174,51 @@ end
 
 `Swoosh::Callback::Controller` is only that module plus `request.body.read`.
 
+## Cancelling
+
+A payment request the payer never answers occupies the full three minutes.
+Cancel it and the payer's Swish app stops offering it immediately:
+
+```ruby
+Swoosh.cancel_payment(order.swish_payment_id)   # => Payment, status CANCELLED
+```
+
+Only a `CREATED` payment can be cancelled, which makes this an inherently racy
+call: on a page people abandon by paying, the payer often accepts somewhere
+between your decision to cancel and the request landing. Swish reports both
+outcomes as a 422 differing only by a code in the body, so Swoosh gives them
+separate classes:
+
+```ruby
+begin
+  Swoosh.cancel_payment(order.swish_payment_id)
+rescue Swoosh::PaymentAlreadyCancelled
+  # RP08. Already where you wanted it -- usually nothing to do.
+rescue Swoosh::PaymentNotCancellable
+  # RP07. The payer got there first. This order may be PAID.
+  order.settle!(Swoosh.find_payment(order.swish_payment_id))
+end
+```
+
+**A failed cancel is never licence to treat an order as abandoned.** `RP07`
+means the payment left `CREATED`, and the overwhelmingly likely reason is that
+it was paid. Poll before you decide anything.
+
+One wrinkle worth knowing, because it looks like a bug: a *successful* cancel
+comes back carrying `errorCode` `"RP08"` while its status is `CANCELLED`. Swish
+populates that field on more than failures, so read `status` -- or
+`payment.cancelled?` -- rather than treating a present `error_code` as trouble.
+
+```ruby
+payment = Swoosh.cancel_payment(id)
+payment.cancelled?   # => true
+payment.error?       # => false  -- ERROR is a different status
+payment.error_code   # => "RP08"
+```
+
+Cancelling also drops any stored m-commerce token, so `Swoosh.token_for` won't
+hand back something that still renders a QR nobody can pay.
+
 ## Polling
 
 ```ruby
@@ -271,9 +316,10 @@ in a later request (a reload, an AJAX-rendered QR), Swoosh can keep it for you:
 Swoosh.token_for(order.swish_payment_id)   # => token, or nil
 ```
 
-`nil` means "create a fresh payment request", never an error. In Rails this is
-backed by `Rails.cache` by default with a 5 minute TTL, since the token dies with
-the payment window anyway. Set `config.swoosh.token_store = nil` to turn it off.
+`nil` means "create a fresh payment request", never an error -- whether the token
+expired, was never stored, or was dropped because you cancelled the payment. In
+Rails this is backed by `Rails.cache` by default with a 5 minute TTL, since the
+token dies with the payment window anyway. Set `config.swoosh.token_store = nil` to turn it off.
 Losing a token costs the payer one extra tap; nothing about it is load-bearing.
 
 Statuses are deliberately **not** cached -- caching a `CREATED` would make your

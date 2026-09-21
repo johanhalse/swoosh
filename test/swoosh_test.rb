@@ -430,6 +430,135 @@ class SwooshFindPaymentTest < Minitest::Test
   end
 end
 
+class SwooshCancelPaymentTest < Minitest::Test
+  CANCELLED_ID = "9FEB8DB5130345C79F8DA0C416E7E7DA"
+
+  def setup
+    @main = Swoosh::TestCerts.client
+  end
+
+  def test_it_patches_the_status_at_the_v1_endpoint
+    cancel
+
+    assert_requested(:patch, %r{/api/v1/paymentrequests/[0-9A-F]{32}\z}) do |request|
+      JSON.parse(request.body) == [{ "op" => "replace", "path" => "/status", "value" => "cancelled" }]
+    end
+  end
+
+  # Swish answers any other content type with a 415, so this is load-bearing.
+  def test_it_sends_the_json_patch_content_type
+    cancel
+
+    assert_requested(:patch, %r{/api/v1/paymentrequests/}) do |request|
+      request.headers["Content-Type"] == "application/json-patch+json"
+    end
+  end
+
+  def test_it_still_asks_for_a_json_response
+    cancel
+
+    assert_requested(:patch, %r{/api/v1/paymentrequests/}) do |request|
+      request.headers["Accept"] == "application/json"
+    end
+  end
+
+  def test_it_returns_the_payment_in_its_cancelled_state
+    payment = cancel
+
+    assert_predicate payment, :cancelled?
+    assert_predicate payment, :terminal?
+    refute_predicate payment, :pending?
+  end
+
+  def test_it_cancels_the_payment_it_was_given
+    payment = cancel
+
+    assert_match(/\A[0-9A-F]{32}\z/, payment.id)
+  end
+
+  # Swish fills errorCode on a *successful* cancel, so a caller reading it as
+  # "something went wrong" would report a clean cancellation as a failure.
+  def test_a_successful_cancel_carries_swishs_rp08_without_being_an_error
+    payment = cancel
+
+    assert_equal "RP08", payment.error_code
+    refute_predicate payment, :error?
+  end
+
+  # The payer accepted before the PATCH landed. The money is real; nothing about
+  # this order is abandoned.
+  def test_cancelling_a_paid_payment_raises_payment_not_cancellable
+    Swoosh::Test.stub_cancel_payment_refused(CANCELLED_ID, code: "RP07")
+
+    error = assert_raises(Swoosh::PaymentNotCancellable) { @main.cancel_payment(CANCELLED_ID) }
+
+    assert_equal 422, error.status
+    assert_equal "RP07", error.error_code
+  end
+
+  def test_cancelling_twice_raises_payment_already_cancelled
+    Swoosh::Test.stub_cancel_payment_refused(CANCELLED_ID, code: "RP08")
+
+    error = assert_raises(Swoosh::PaymentAlreadyCancelled) { @main.cancel_payment(CANCELLED_ID) }
+
+    assert_equal "RP08", error.error_code
+  end
+
+  # Both refusals are 422s that differ only in a string in the body, so a caller
+  # that has to tell "the payer paid" from "already cancelled" would be reduced
+  # to matching on error codes without these.
+  def test_the_two_refusals_are_separable_without_matching_on_error_codes
+    assert_operator Swoosh::PaymentNotCancellable, :<, Swoosh::RequestError
+    assert_operator Swoosh::PaymentAlreadyCancelled, :<, Swoosh::RequestError
+    refute_operator Swoosh::PaymentNotCancellable, :<=, Swoosh::PaymentAlreadyCancelled
+  end
+
+  def test_an_unknown_swish_code_still_raises_something_rescuable
+    WebMock.stub_request(:patch, %r{/api/v1/paymentrequests/})
+           .to_return(status: 422, body: %([{"errorCode":"XX99","errorMessage":"Something new"}]))
+
+    error = assert_raises(Swoosh::RequestError) { @main.cancel_payment(CANCELLED_ID) }
+
+    assert_equal "XX99", error.error_code
+  end
+
+  def test_an_unknown_payment_still_raises_payment_not_found
+    WebMock.stub_request(:patch, %r{/api/v1/paymentrequests/})
+           .to_return(status: 404, body: %([{"errorCode":"RP04","errorMessage":"No payment request found"}]))
+
+    assert_raises(Swoosh::PaymentNotFound) { @main.cancel_payment(CANCELLED_ID) }
+  end
+
+  def test_it_drops_the_token_so_nothing_renders_a_qr_for_a_dead_payment
+    store = Swoosh::Fakes::MemoryBackend.new
+    main = Swoosh::TestCerts.client(token_store: store)
+    Swoosh::Test.stub_cancel_payment(CANCELLED_ID)
+    store.write("swoosh:token:#{CANCELLED_ID}", "tok")
+
+    main.cancel_payment(CANCELLED_ID)
+
+    assert_nil main.token_for(CANCELLED_ID)
+  end
+
+  # A store written against the older read/write contract has no #delete, and
+  # that must not turn a cancel Swish accepted into an exception.
+  def test_a_store_that_cannot_delete_does_not_fail_the_cancel
+    main = Swoosh::TestCerts.client(token_store: Swoosh::Fakes::UndeletableBackend.new)
+    Swoosh::Test.stub_cancel_payment(CANCELLED_ID)
+
+    assert_predicate main.cancel_payment(CANCELLED_ID), :cancelled?
+  end
+
+  private
+
+  def cancel
+    VCR.use_cassette("cancel_payment") do
+      created = @main.generate_payment(199, message: "Probe", payee_payment_reference: "ABC123")
+      @main.cancel_payment(created.id)
+    end
+  end
+end
+
 class SwooshErrorTest < Minitest::Test
   def setup
     @main = Swoosh::TestCerts.client

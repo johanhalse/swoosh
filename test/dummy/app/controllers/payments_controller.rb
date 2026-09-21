@@ -18,4 +18,18 @@ class PaymentsController < ApplicationController
 
     render json: { environment: Swoosh.configuration.environment, url: Swoosh.client.url }, status: :created
   end
+
+  # Withdrawing an abandoned checkout. The two refusals need different answers,
+  # which is the whole reason they are separate classes.
+  def destroy
+    payment = Swoosh.cancel_payment(params[:id])
+
+    render json: { id: payment.id, status: payment.status }
+  rescue Swoosh::PaymentAlreadyCancelled
+    # Already where we wanted it. Nothing to do.
+    head :no_content
+  rescue Swoosh::PaymentNotCancellable => e
+    # The payer accepted first, so this checkout is paid, not abandoned.
+    render json: { error: e.error_code }, status: :conflict
+  end
 end

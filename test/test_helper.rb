@@ -12,6 +12,47 @@ require "swoosh/test"
 require_relative "support/vcr"
 
 module Swoosh
+  # Stand-ins for a token store, shared by the TokenStore unit tests and the
+  # cancel tests that assert a cancelled payment's token is dropped.
+  module Fakes
+    # What Rails.cache looks like from the gem's side.
+    class MemoryBackend
+      attr_reader :writes
+
+      def initialize
+        @data = {}
+        @writes = []
+      end
+
+      def write(key, value, **options)
+        @writes << [key, value, options]
+        @data[key] = value
+      end
+
+      def read(key) = @data[key]
+      def delete(key) = @data.delete(key)
+    end
+
+    # A store written against the read/write contract that predates #delete.
+    # Cancelling against one must still succeed.
+    class UndeletableBackend < MemoryBackend
+      undef_method :delete
+    end
+
+    class BrokenBackend
+      def write(*) = raise("cache is down")
+      def read(*) = raise("cache is down")
+      def delete(*) = raise("cache is down")
+    end
+
+    # What a misconfigured store looks like: it doesn't answer the interface.
+    class MiswiredBackend
+      def write(*) = raise(NoMethodError, "undefined method 'write'")
+      def read(*) = raise(NameError, "uninitialized constant Something")
+      def delete(*) = raise(NoMethodError, "undefined method 'delete'")
+    end
+  end
+
   module TestCerts
     DIR = File.expand_path("../certs", __dir__)
     MERCHANT = "Swish_Merchant_TestCertificate_1234679304.p12"

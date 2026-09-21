@@ -2,6 +2,49 @@
 
 require_relative "rails_helper"
 
+class CancelPaymentsTest < ActionDispatch::IntegrationTest
+  PAYMENT_ID = "9FEB8DB5130345C79F8DA0C416E7E7DA"
+
+  test "a rails app cancels a payment through the configured client" do
+    Swoosh::Test.stub_cancel_payment(PAYMENT_ID)
+
+    delete payment_path(PAYMENT_ID)
+
+    assert_response :success
+    assert_equal "CANCELLED", response.parsed_body["status"]
+  end
+
+  test "the cancel is a json patch to the v1 endpoint" do
+    Swoosh::Test.stub_cancel_payment(PAYMENT_ID)
+
+    delete payment_path(PAYMENT_ID)
+
+    assert_requested(:patch, %r{/api/v1/paymentrequests/#{PAYMENT_ID}\z}) do |request|
+      request.headers["Content-Type"] == "application/json-patch+json" &&
+        JSON.parse(request.body) == [{ "op" => "replace", "path" => "/status", "value" => "cancelled" }]
+    end
+  end
+
+  # The app has to be able to tell "too late, they paid" from any other 422, or
+  # it will mark a paid order abandoned.
+  test "a payment the payer already paid is refused rather than silently cancelled" do
+    Swoosh::Test.stub_cancel_payment_refused(PAYMENT_ID, code: "RP07")
+
+    delete payment_path(PAYMENT_ID)
+
+    assert_response :conflict
+    assert_equal "RP07", response.parsed_body["error"]
+  end
+
+  test "cancelling twice is not an error the app has to show anyone" do
+    Swoosh::Test.stub_cancel_payment_refused(PAYMENT_ID, code: "RP08")
+
+    delete payment_path(PAYMENT_ID)
+
+    assert_response :no_content
+  end
+end
+
 class PaymentsTest < ActionDispatch::IntegrationTest
   test "a rails app creates a swish payment through the configured client" do
     VCR.use_cassette("create_payment") do

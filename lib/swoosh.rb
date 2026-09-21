@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "http"
+require "json"
 require "openssl"
 require "securerandom"
 require "uri"
@@ -47,6 +48,10 @@ module Swoosh
       client.find_payment(id)
     end
 
+    def cancel_payment(id)
+      client.cancel_payment(id)
+    end
+
     def token_for(payment_id)
       client.token_for(payment_id)
     end
@@ -59,6 +64,11 @@ module Swoosh
     # Creating a payment is v2 (we supply the id); reading one back is v1.
     TEST_LOOKUP_URL = "https://mss.cpc.getswish.net/swish-cpcapi/api/v1/paymentrequests"
     PRODUCTION_LOOKUP_URL = "https://cpc.getswish.net/swish-cpcapi/api/v1/paymentrequests"
+
+    # Cancelling is a JSON Patch against the payment's status, not a body of its
+    # own, and Swish rejects it with a 415 under any other content type.
+    JSON_PATCH_CONTENT_TYPE = "application/json-patch+json"
+    CANCEL_PATCH = [{ op: "replace", path: "/status", value: "cancelled" }].freeze
 
     attr_reader :configuration, :certificates, :token_store
 
@@ -89,6 +99,27 @@ module Swoosh
       Payment.from_json(request(:get, "#{lookup_url}/#{id}").to_s)
     end
 
+    # Withdraws a payment request the payer hasn't answered yet, so an abandoned
+    # checkout stops waiting out the full three minutes.
+    #
+    # Only a CREATED payment can be cancelled, so expect the race: the payer
+    # accepts between your decision to cancel and this request arriving. Swish
+    # reports that as PaymentNotCancellable and a second cancel as
+    # PaymentAlreadyCancelled -- believe find_payment over your own assumption
+    # about which state the payment was in.
+    def cancel_payment(id)
+      response = request(
+        :patch, "#{lookup_url}/#{id}",
+        headers: { content_type: JSON_PATCH_CONTENT_TYPE },
+        body: JSON.generate(CANCEL_PATCH)
+      )
+      # The token dies with the request; keeping it would let token_for hand back
+      # something that still renders a QR nobody can pay.
+      token_store.delete(id)
+
+      Payment.from_json(response.to_s)
+    end
+
     # The token stored when the payment was created, or nil. Nil means "create a
     # fresh payment request" -- never an error.
     def token_for(payment_id) = token_store.read(payment_id)
@@ -105,19 +136,12 @@ module Swoosh
 
     private
 
-    def error_class(response)
-      return ServerError if response.status.server_error?
-      return PaymentNotFound if response.status.code == 404
-
-      RequestError
-    end
-
-    def request(verb, target, **options)
-      response = HTTP.headers(accept: "application/json")
+    def request(verb, target, headers: {}, **options)
+      response = HTTP.headers({ accept: "application/json" }.merge(headers))
                      .public_send(verb, target, ssl_context: ssl_context, **options)
       return response if response.status.success?
 
-      raise error_class(response).new(status: response.status.code, body: response.to_s)
+      raise ResponseError.for(status: response.status.code, body: response.to_s)
     end
   end
 end

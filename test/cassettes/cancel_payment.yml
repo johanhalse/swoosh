@@ -1,0 +1,74 @@
+---
+http_interactions:
+- request:
+    method: put
+    uri: https://mss.cpc.getswish.net/swish-cpcapi/api/v2/paymentrequests/D8FA8EAF3A5140F8B42DF4D404F28C88
+    body:
+      encoding: UTF-8
+      string: '{"payeeAlias":"1231181189","callbackUrl":"https://example.com/api/swishcb/paymentrequests","amount":199,"currency":"SEK","message":"Probe","payeePaymentReference":"ABC123"}'
+    headers:
+      Accept:
+      - application/json
+      Connection:
+      - close
+      Content-Type:
+      - application/json; charset=utf-8
+      Host:
+      - mss.cpc.getswish.net
+      User-Agent:
+      - http.rb/6.0.4
+  response:
+    status:
+      code: 201
+      message: Created
+    headers:
+      Location:
+      - https://mss.cpc.getswish.net/swish-cpcapi/api/v1/paymentrequests/D8FA8EAF3A5140F8B42DF4D404F28C88
+      Paymentrequesttoken:
+      - 410418abc2fa4682bdb03ba32af76ed4
+      Content-Length:
+      - '0'
+      Date:
+      - Mon, 21 Sep 2026 10:43:34 GMT
+      Connection:
+      - close
+    body:
+      encoding: ASCII-8BIT
+      string: ''
+  recorded_at: Mon, 21 Sep 2026 10:43:34 GMT
+- request:
+    method: patch
+    uri: https://mss.cpc.getswish.net/swish-cpcapi/api/v1/paymentrequests/D8FA8EAF3A5140F8B42DF4D404F28C88
+    body:
+      encoding: UTF-8
+      string: '[{"op":"replace","path":"/status","value":"cancelled"}]'
+    headers:
+      Accept:
+      - application/json
+      Content-Type:
+      - application/json-patch+json
+      Connection:
+      - close
+      Host:
+      - mss.cpc.getswish.net
+      User-Agent:
+      - http.rb/6.0.4
+  response:
+    status:
+      code: 200
+      message: OK
+    headers:
+      Content-Type:
+      - application/json
+      Transfer-Encoding:
+      - chunked
+      Date:
+      - Mon, 21 Sep 2026 10:43:34 GMT
+      Connection:
+      - close
+    body:
+      encoding: UTF-8
+      string: '{"id":"D8FA8EAF3A5140F8B42DF4D404F28C88","payeePaymentReference":"ABC123","paymentReference":"525F8A14AC2F409796BE54F0CB07C7DD","callbackUrl":"https://example.com/api/swishcb/paymentrequests","payerAlias":"46464646464","payeeAlias":"1231181189","amount":199.00,"currency":"SEK","message":"Probe","status":"CANCELLED","dateCreated":"2026-09-21T10:43:34.303Z","datePaid":null,"errorCode":"RP08","errorMessage":"The
+        payment request has been cancelled."}'
+  recorded_at: Mon, 21 Sep 2026 10:43:34 GMT
+recorded_with: VCR 6.4.0

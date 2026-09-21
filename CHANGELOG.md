@@ -1,5 +1,15 @@
 ## [Unreleased]
 
+- Add `Swoosh.cancel_payment`, which withdraws a `CREATED` payment request so an abandoned checkout
+  stops occupying the payer's three minutes. Cancelling also drops the stored m-commerce token.
+- Raise `Swoosh::PaymentNotCancellable` (RP07, the payer accepted first) and
+  `Swoosh::PaymentAlreadyCancelled` (RP08, a second cancel) rather than one `RequestError`: Swish
+  reports both as a 422 differing only by a code, and they call for opposite responses.
+- Pick the error class from Swish's errorCode as well as the status, via `ResponseError.for`. An
+  unrecognised code still raises `RequestError`, so a code Swish adds later stays rescuable.
+- Add `TokenStore#delete`, used when a payment can no longer be paid. A store that predates it and
+  answers only `read`/`write` is skipped rather than raising.
+
 - `generate_payment` returns a `Swoosh::Payment` carrying the id and the m-commerce token instead of
   the response body, which was empty on success.
 - Add `Swoosh.find_payment`, `Payment#app_switch_url`, `Payment#qr_code` and status predicates.

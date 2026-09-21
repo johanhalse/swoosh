@@ -69,33 +69,7 @@ class PaymentTest < Minitest::Test
 end
 
 class TokenStoreTest < Minitest::Test
-  # Stands in for Rails.cache.
-  class MemoryBackend
-    attr_reader :writes
-
-    def initialize
-      @data = {}
-      @writes = []
-    end
-
-    def write(key, value, **options)
-      @writes << [key, value, options]
-      @data[key] = value
-    end
-
-    def read(key) = @data[key]
-  end
-
-  class BrokenBackend
-    def write(*) = raise("cache is down")
-    def read(*) = raise("cache is down")
-  end
-
-  # What a misconfigured store looks like: it doesn't answer the interface.
-  class MiswiredBackend
-    def write(*) = raise(NoMethodError, "undefined method 'write'")
-    def read(*) = raise(NameError, "uninitialized constant Something")
-  end
+  include Swoosh::Fakes
 
   def test_it_round_trips_a_token
     store = Swoosh::TokenStore.new(MemoryBackend.new, ttl: 300)
@@ -140,6 +114,33 @@ class TokenStoreTest < Minitest::Test
 
     assert_raises(NoMethodError) { store.write("ABC", "tok") }
     assert_raises(NameError) { store.read("ABC") }
+  end
+
+  def test_deleting_drops_the_token
+    store = Swoosh::TokenStore.new(MemoryBackend.new, ttl: 300)
+    store.write("ABC", "tok")
+    store.delete("ABC")
+
+    assert_nil store.read("ABC")
+  end
+
+  def test_deleting_something_that_was_never_written_is_not_an_error
+    assert_nil Swoosh::TokenStore.new(MemoryBackend.new, ttl: 300).delete("never-written")
+  end
+
+  def test_no_backend_deletes_nothing_rather_than_raising
+    assert_nil Swoosh::TokenStore.new(nil, ttl: 300).delete("ABC")
+  end
+
+  def test_a_broken_cache_does_not_fail_a_delete
+    assert_nil Swoosh::TokenStore.new(BrokenBackend.new, ttl: 300).delete("ABC")
+  end
+
+  # delete arrived after read and write, so unlike those two a store that lacks
+  # it is an older contract rather than a miswiring, and must stay quiet: the
+  # TTL clears the token anyway.
+  def test_a_store_without_delete_is_skipped_rather_than_blowing_up
+    assert_nil Swoosh::TokenStore.new(UndeletableBackend.new, ttl: 300).delete("ABC")
   end
 end
 
