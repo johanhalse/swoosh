@@ -105,13 +105,19 @@ module Swoosh
 
     private
 
+    def error_class(response)
+      return ServerError if response.status.server_error?
+      return PaymentNotFound if response.status.code == 404
+
+      RequestError
+    end
+
     def request(verb, target, **options)
       response = HTTP.headers(accept: "application/json")
                      .public_send(verb, target, ssl_context: ssl_context, **options)
       return response if response.status.success?
 
-      error = response.status.server_error? ? ServerError : RequestError
-      raise error.new(status: response.status.code, body: response.to_s)
+      raise error_class(response).new(status: response.status.code, body: response.to_s)
     end
   end
 end

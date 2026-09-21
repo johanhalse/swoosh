@@ -197,6 +197,64 @@ the same settling code -- make it idempotent once.
 Statuses are `CREATED`, `PAID`, `DECLINED`, `ERROR`, `CANCELLED`. A payer has
 three minutes to accept; after that Swish reports `ERROR` with code `TM01`.
 
+### Reconciliation
+
+Swoosh deliberately ships no sweep: it would need your database and your
+scheduler. It gives you `find_payment` and error classes precise enough to build
+one in a dozen lines.
+
+```ruby
+class ReconcileSwishPayments
+  def call
+    Order.awaiting_swish.where(created_at: ..3.minutes.ago).find_each do |order|
+      settle(order)
+    rescue Swoosh::PaymentNotFound
+      order.record_swish_lookup_miss!   # do NOT treat as "never happened"
+    rescue Swoosh::ServerError
+      next                              # transient; next sweep picks it up
+    end
+  end
+
+  private
+
+  def settle(order)
+    payment = Swoosh.find_payment(order.swish_payment_id)
+    order.settle!(payment) if payment.terminal?
+  end
+end
+```
+
+Rescue per row, not per batch: one bad row shouldn't abort the sweep.
+
+**A 404 is not proof the payment doesn't exist.** The integration guide defines
+it as "the Payment request was not found, *or it was not created by the
+merchant*" -- so polling a real, possibly paid payment with the wrong merchant
+certificate returns exactly the same `Swoosh::PaymentNotFound`.
+
+Retrying won't fix either case, but the right response differs, and you can't
+tell them apart from the response alone. So don't write a 404 off as a payment
+that never happened. Record it and alert when the rate climbs: a handful usually
+means bad rows, while a spike almost always means a certificate or environment
+mismatch, where every one of those payments is real.
+
+`ServerError` (5xx) is separated from `RequestError` (4xx) so you retry the
+failures worth retrying and nothing else.
+
+### Payments don't expire out from under you
+
+The three-minute limit is the payer's deadline to accept, not a retention
+window. A payment request stays queryable long after it settles -- Swish rejects
+an original as too old for refunds only past 13 months. Age alone will not turn a
+poll into a 404.
+
+### Staging settles payments for you
+
+MSS moves a payment to `PAID` on its own, with no payer involved. Convenient for
+exercising the happy path, but it means staging never shows you `DECLINED`, and
+never shows you the `ERROR`/`TM01` timeout that a real unanswered payment
+produces. Don't read "it went `PAID` in staging" as proof your flow handles the
+other four statuses.
+
 ## What to persist
 
 Just the id:

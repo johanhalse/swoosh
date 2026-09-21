@@ -42,6 +42,16 @@ module Swoosh
   # 4xx -- the request was wrong. A bug, or a payer number that can't be used.
   class RequestError < ResponseError; end
 
+  # 404 -- Swish has no such payment *for this certificate*. Per the integration
+  # guide it means "not found, or it was not created by the merchant", so it is
+  # not proof the payment doesn't exist: the same 404 comes back for a real,
+  # possibly paid payment polled with the wrong merchant certificate.
+  #
+  # Retrying won't help, but treating one as "this payment never happened" is
+  # only safe once you know the certificate is right. In bulk, this almost
+  # always means a configuration mismatch rather than N missing payments.
+  class PaymentNotFound < RequestError; end
+
   # 5xx -- Swish had a problem. Worth retrying.
   class ServerError < ResponseError; end
 end

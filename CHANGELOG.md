@@ -3,7 +3,8 @@
 - `generate_payment` returns a `Swoosh::Payment` carrying the id and the m-commerce token instead of
   the response body, which was empty on success.
 - Add `Swoosh.find_payment`, `Payment#app_switch_url`, `Payment#qr_code` and status predicates.
-- Raise `Swoosh::RequestError` / `Swoosh::ServerError` on 4xx/5xx, carrying Swish's errorCode.
+- Raise `Swoosh::RequestError` / `Swoosh::ServerError` on 4xx/5xx, carrying Swish's errorCode,
+  with `Swoosh::PaymentNotFound` for 404 so a reconciliation sweep can skip what will never resolve.
 - Add `Swoosh::Callback`, a plain module any framework can include, and `Swoosh::Callback::Controller`,
   the Rails concern that supplies only `request.body.read`.
 - Add an opt-in token store (`Rails.cache` by default) for the m-commerce token, which Swish issues once.

@@ -426,9 +426,38 @@ class SwooshErrorTest < Minitest::Test
     assert_match "BE18", error.message
   end
 
+  def test_an_unknown_payment_raises_payment_not_found
+    WebMock.stub_request(:get, %r{/api/v1/paymentrequests/})
+           .to_return(status: 404, body: %([{"errorCode":"RP04","errorMessage":"No payment request found"}]))
+
+    error = assert_raises(Swoosh::PaymentNotFound) { @main.find_payment("3D265CCC2CBA48E49026181441E1DADB") }
+
+    assert_equal "RP04", error.error_code
+  end
+
+  # A sweep retries transient failures but not this one, so it has to be able to
+  # tell them apart without matching on error codes.
+  def test_payment_not_found_is_a_request_error_but_not_every_request_error
+    assert_operator Swoosh::PaymentNotFound, :<, Swoosh::RequestError
+
+    WebMock.stub_request(:get, %r{/api/v1/paymentrequests/})
+           .to_return(status: 422, body: %([{"errorCode":"PA01","errorMessage":"Parameter is not correct."}]))
+
+    assert_raises(Swoosh::RequestError) { @main.find_payment("NOTAVALIDUUID") }
+    refute_raises_payment_not_found { @main.find_payment("NOTAVALIDUUID") }
+  end
+
   def test_a_server_error_is_distinguishable_from_a_request_error
     assert_operator Swoosh::ServerError, :<, Swoosh::ResponseError
     assert_operator Swoosh::RequestError, :<, Swoosh::ResponseError
+  end
+
+  def refute_raises_payment_not_found
+    yield
+  rescue Swoosh::PaymentNotFound
+    flunk "expected not to raise Swoosh::PaymentNotFound"
+  rescue Swoosh::RequestError
+    pass
   end
 
   def test_a_non_json_body_still_produces_a_usable_error
