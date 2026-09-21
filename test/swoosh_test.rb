@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "test_helper"
+require "json"
 
 class SwooshTest < Minitest::Test
   def test_that_it_has_a_version_number
@@ -105,5 +106,58 @@ class SwooshCertificateTest < Minitest::Test
 
   def common_name(cert)
     cert.subject.to_a.assoc("CN")[1]
+  end
+end
+
+class SwooshCreatePaymentTest < Minitest::Test
+  PAYMENT_REQUEST_URI = %r{\Ahttps://mss\.cpc\.getswish\.net/swish-cpcapi/api/v2/paymentrequests/[0-9A-F]{32}\z}
+
+  def setup
+    @main = Swoosh::TestCerts.client
+  end
+
+  def test_it_puts_the_payment_to_a_freshly_generated_instruction_id
+    VCR.use_cassette("create_payment") { @main.generate_payment(100, "Kaffe") }
+
+    assert_requested :put, PAYMENT_REQUEST_URI
+  end
+
+  def test_it_sends_the_swish_payment_payload_as_json
+    VCR.use_cassette("create_payment") { @main.generate_payment(100, "Kaffe") }
+
+    assert_requested(:put, PAYMENT_REQUEST_URI) do |request|
+      payload = JSON.parse(request.body)
+
+      payload["amount"] == 100 &&
+        payload["currency"] == "SEK" &&
+        payload["message"] == "Kaffe" &&
+        payload["payeeAlias"] == "1231181189"
+    end
+  end
+
+  def test_it_asks_for_a_json_response
+    VCR.use_cassette("create_payment") { @main.generate_payment(100, "Kaffe") }
+
+    assert_requested(:put, PAYMENT_REQUEST_URI) do |request|
+      request.headers["Accept"] == "application/json"
+    end
+  end
+
+  def test_swish_creates_the_payment_and_returns_its_location
+    response = VCR.use_cassette("create_payment") do
+      HTTP.headers(accept: "application/json")
+          .put("#{@main.url}/#{@main.uuid}", ssl_context: @main.ssl_context, json: @main.data(100, "Kaffe"))
+    end
+
+    assert_equal 201, response.status.code
+    assert_match %r{/api/v1/paymentrequests/[0-9A-F]{32}\z}, response.headers["Location"]
+  end
+
+  # Swish answers 201 with an empty body: the instruction id only comes back in
+  # the Location header, so the current return value carries nothing.
+  def test_generate_payment_returns_the_empty_response_body
+    body = VCR.use_cassette("create_payment") { @main.generate_payment(100, "Kaffe") }
+
+    assert_empty body
   end
 end

@@ -1,0 +1,37 @@
+---
+http_interactions:
+- request:
+    method: put
+    uri: https://mss.cpc.getswish.net/swish-cpcapi/api/v2/paymentrequests/CF9D5790945240C4962A53F8C0199816
+    body:
+      encoding: UTF-8
+      string: '{"payeePaymentReference":"0123456789","callbackUrl":"https://example.com/api/swishcb/paymentrequests","payerAlias":"4671234768","payeeAlias":"1231181189","amount":100,"currency":"SEK","message":"Kaffe"}'
+    headers:
+      Accept:
+      - application/json
+      Connection:
+      - close
+      Content-Type:
+      - application/json; charset=utf-8
+      Host:
+      - mss.cpc.getswish.net
+      User-Agent:
+      - http.rb/6.0.4
+  response:
+    status:
+      code: 201
+      message: Created
+    headers:
+      Location:
+      - https://mss.cpc.getswish.net/swish-cpcapi/api/v1/paymentrequests/CF9D5790945240C4962A53F8C0199816
+      Content-Length:
+      - '0'
+      Date:
+      - Mon, 21 Sep 2026 07:33:36 GMT
+      Connection:
+      - close
+    body:
+      encoding: ASCII-8BIT
+      string: ''
+  recorded_at: Mon, 21 Sep 2026 07:33:36 GMT
+recorded_with: VCR 6.4.0

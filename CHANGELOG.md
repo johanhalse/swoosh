@@ -3,6 +3,8 @@
 - Require Ruby >= 3.2; develop and test against Ruby 4.0.7.
 - Bump `http` to ~> 6.0, and the development dependencies (rake, rubocop, rubocop-minitest, minitest).
 - Replace `pry` with `debug`.
+- Add `vcr` + `webmock`, and record the payment-request flow against the Swish staging playground (MSS)
+  into `test/cassettes/`, so the suite exercises a real 201 response offline.
 - Load `rubocop-minitest` and `rubocop-rake` as RuboCop plugins (they were installed but never enabled).
 - Refresh the bundled Swish test certificates. The previous merchant certificates expired in 2022 and
   were encrypted with `pbeWithSHA1And40BitRC2-CBC`, which OpenSSL 3 refuses to parse without the legacy
