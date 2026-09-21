@@ -1,5 +1,13 @@
 ## [Unreleased]
 
+- Find certificates by name: `swish_test.p12` / `swish_production.p12` in a configurable `cert_dir`.
+  Staging falls back to the certificates bundled with the gem; production raises rather than falling back.
+- Add `Swoosh::Configuration` and `Swoosh.configure`, so the core no longer depends on Rails.
+- Rework the railtie around `config.swoosh.{environment,cert_dir,cert_password,root_ca_path}`, defaulting
+  to staging outside `Rails.env.production?`.
+- Add a dummy Rails application in `test/dummy` and a second suite that drives the gem through it.
+  `rake` now runs `test:gem` (Rails absent) and `test:rails` in separate processes.
+
 - Require Ruby >= 3.2; develop and test against Ruby 4.0.7.
 - Bump `http` to ~> 6.0, and the development dependencies (rake, rubocop, rubocop-minitest, minitest).
 - Replace `pry` with `debug`.

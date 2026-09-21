@@ -41,7 +41,7 @@ class SwooshMainTest < Minitest::Test
   end
 
   def test_production_environment_uses_the_production_url
-    assert_equal Swoosh::Main::PRODUCTION_URL, Swoosh::TestCerts.client(env: "production").url
+    assert_equal Swoosh::Main::PRODUCTION_URL, Swoosh::TestCerts.client(environment: :production, cert_dir: Swoosh::TestCerts::DIR).url
   end
 
   def test_uuid_is_an_uppercase_hex_string_without_dashes
@@ -60,8 +60,98 @@ class SwooshMainTest < Minitest::Test
     assert_equal "SEK", data[:currency]
   end
 
-  def test_cert_path_joins_the_configured_cert_dir
-    assert_equal File.join(Swoosh::TestCerts::DIR, "x.pem"), @main.cert_path("x.pem")
+  def test_environment_is_exposed
+    assert_equal :test, @main.environment
+  end
+end
+
+class SwooshCertificateResolutionTest < Minitest::Test
+  def test_it_looks_for_a_bundle_named_after_the_environment
+    assert_equal "swish_test.p12", certificates(:test).filename
+    assert_equal "swish_production.p12", certificates(:production).filename
+  end
+
+  def test_it_picks_up_a_bundle_dropped_into_the_cert_dir
+    Swoosh::TestCerts.with_cert_dir(environment: :test) do |dir|
+      certs = certificates(:test, cert_dir: dir)
+
+      assert_equal File.join(dir, "swish_test.p12"), certs.cert_path
+      assert_kind_of OpenSSL::X509::Certificate, certs.cert.certificate
+    end
+  end
+
+  def test_a_dropped_in_bundle_wins_over_the_bundled_staging_certificate
+    Swoosh::TestCerts.with_cert_dir(environment: :test) do |dir|
+      refute_equal Swoosh::Certificates::BUNDLED_TEST_CERT, certificates(:test, cert_dir: dir).cert_path
+    end
+  end
+
+  def test_staging_falls_back_to_the_certificates_bundled_with_the_gem
+    assert_equal Swoosh::Certificates::BUNDLED_TEST_CERT, certificates(:test).cert_path
+  end
+
+  def test_staging_falls_back_even_when_the_cert_dir_is_empty
+    Dir.mktmpdir do |dir|
+      assert_equal Swoosh::Certificates::BUNDLED_TEST_CERT, certificates(:test, cert_dir: dir).cert_path
+    end
+  end
+
+  def test_production_never_falls_back_to_the_bundled_staging_certificate
+    Dir.mktmpdir do |dir|
+      error = assert_raises(Swoosh::CertificateError) { certificates(:production, cert_dir: dir).cert_path }
+
+      assert_match "swish_production.p12", error.message
+      assert_match dir, error.message
+    end
+  end
+
+  def test_production_reads_the_bundle_dropped_into_the_cert_dir
+    Swoosh::TestCerts.with_cert_dir(environment: :production) do |dir|
+      certs = certificates(:production, cert_dir: dir)
+
+      assert_equal File.join(dir, "swish_production.p12"), certs.cert_path
+      assert_kind_of OpenSSL::X509::Certificate, certs.cert.certificate
+    end
+  end
+
+  def test_a_wrong_password_reports_the_path_it_tried
+    Swoosh::TestCerts.with_cert_dir(environment: :test) do |dir|
+      certs = certificates(:test, cert_dir: dir, cert_password: "nope")
+      error = assert_raises(Swoosh::CertificateError) { certs.cert }
+
+      assert_match "cert_password", error.message
+    end
+  end
+
+  def test_the_root_ca_ships_with_the_gem_and_is_overridable
+    assert_equal Swoosh::Certificates::BUNDLED_ROOT_CA, certificates(:test).root_ca_path
+    assert_equal "/tmp/other.pem", certificates(:test, root_ca_path: "/tmp/other.pem").root_ca_path
+  end
+
+  private
+
+  def certificates(environment, **attributes)
+    Swoosh::Certificates.new(Swoosh::TestCerts.configuration(environment: environment, **attributes))
+  end
+end
+
+class SwooshConfigurationTest < Minitest::Test
+  def test_it_defaults_to_the_staging_environment
+    assert_equal :test, Swoosh::Configuration.new.environment
+  end
+
+  def test_staging_is_an_alias_for_test
+    assert_equal :test, Swoosh::TestCerts.configuration(environment: :staging).environment
+  end
+
+  def test_it_accepts_strings
+    assert_equal :production, Swoosh::TestCerts.configuration(environment: "production").environment
+  end
+
+  def test_it_rejects_an_unknown_environment
+    error = assert_raises(Swoosh::ConfigurationError) { Swoosh::Configuration.new.environment = :sandbox }
+
+    assert_match "sandbox", error.message
   end
 end
 

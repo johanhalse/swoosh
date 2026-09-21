@@ -4,33 +4,60 @@ require "http"
 require "openssl"
 require "securerandom"
 require_relative "swoosh/version"
+require_relative "swoosh/configuration"
+require_relative "swoosh/certificates"
 require_relative "swoosh/railtie" if defined? Rails::Railtie
 
 module Swoosh
   class Error < StandardError; end
+  class ConfigurationError < Error; end
+  class CertificateError < Error; end
 
   class << self
-    attr_accessor :client
-  end
+    attr_writer :client
 
-  def self.generate_payment(amount, message)
-    client.generate_payment(amount, message)
+    def configuration
+      @configuration ||= Configuration.new
+    end
+
+    # Swoosh.configure { |c| c.environment = :production }
+    def configure
+      yield configuration
+      @client = nil
+      configuration
+    end
+
+    def client
+      @client ||= Main.new(configuration: configuration)
+    end
+
+    def reset!
+      @configuration = nil
+      @client = nil
+    end
+
+    def generate_payment(amount, message)
+      client.generate_payment(amount, message)
+    end
   end
 
   class Main
     TEST_URL = "https://mss.cpc.getswish.net/swish-cpcapi/api/v2/paymentrequests"
     PRODUCTION_URL = "https://cpc.getswish.net/swish-cpcapi/api/v2/paymentrequests"
-    DEFAULT_CERT_DIR = "./config/certs"
-    ROOT_CA_FILE = "Swish_TLS_RootCA.pem"
 
-    attr_reader :env, :url
+    attr_reader :configuration, :certificates
 
-    def initialize(env:, cert_dir: DEFAULT_CERT_DIR, cert_file: nil, cert_password: "swish")
-      @env = env
-      @url = @env == "production" ? PRODUCTION_URL : TEST_URL
-      @cert_dir = cert_dir
-      @cert_file = cert_file || "swish_merchant_certificate_#{@env}.p12"
-      @cert_password = cert_password
+    def initialize(configuration: Swoosh.configuration)
+      @configuration = configuration
+      @certificates = Certificates.new(configuration)
+    end
+
+    def environment
+      configuration.environment
+    end
+
+    def url
+      configuration.production? ? PRODUCTION_URL : TEST_URL
     end
 
     def generate_payment(amount, message)
@@ -56,25 +83,15 @@ module Swoosh
     end
 
     def cert
-      @cert ||= OpenSSL::PKCS12.new(File.read(cert_path(@cert_file)), @cert_password)
+      certificates.cert
     end
 
     def root_cert
-      @root_cert ||= OpenSSL::X509::Certificate.new(File.read(cert_path(ROOT_CA_FILE)))
+      certificates.root_ca
     end
 
     def ssl_context
-      OpenSSL::SSL::SSLContext.new.tap do |ctx|
-        ctx.add_certificate(
-          cert.certificate,
-          cert.key,
-          cert.ca_certs.push(root_cert)
-        )
-      end
-    end
-
-    def cert_path(file)
-      File.absolute_path(File.join(@cert_dir, file))
+      certificates.ssl_context
     end
   end
 end

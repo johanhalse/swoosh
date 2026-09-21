@@ -12,6 +12,8 @@ AllCops:
     - "log/**/*"
     - "tmp/**/*"
     - "vendor/**/*"
+    # Rails-generated scaffolding; follows rails-omakase, not this gem's style.
+    - "test/dummy/**/*"
     - "db/schema.rb"
     - "db/migrate/**/*"
 
