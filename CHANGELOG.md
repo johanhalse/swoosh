@@ -1,6 +1,19 @@
 ## [Unreleased]
 
-- Add `Swoosh.cancel_payment`, which withdraws a `CREATED` payment request so an abandoned checkout
+- Drop the `http` gem and reach Swish with `net/http` from the standard library. Swoosh now has no
+  runtime dependencies.
+- **Verify Swish's server certificate.** The SSL context the gem built set no `verify_mode`, which
+  OpenSSL reads as `VERIFY_NONE`, and pushed the bundled DigiCert root into the *client* chain sent
+  to Swish rather than into a trust store. The server was therefore never authenticated and the
+  merchant certificate would have been handed to anything that answered. `root_ca_path` is now the
+  `ca_file` it is documented to be, under `VERIFY_PEER`.
+- Replace `Certificates#ssl_context` with `Certificates#configure_ssl(http)`, and `Main#ssl_context`
+  with `Main#connection(uri)`: Net::HTTP builds its own context rather than accepting one.
+  `ssl_context` also mutated the memoized `ca_certs` array on every call.
+- Connection failures now raise `Net::HTTP`'s own errors (`Errno::ECONNREFUSED`, `Net::OpenTimeout`,
+  `SocketError`) rather than `HTTP::ConnectionError`. Requests inherit Net::HTTP's 60 second open and
+  read timeouts, where http.rb applied none.
+- Add `Swoosh.cancel_payment, which withdraws a `CREATED` payment request so an abandoned checkout
   stops occupying the payer's three minutes. Cancelling also drops the stored m-commerce token.
 - Raise `Swoosh::PaymentNotCancellable` (RP07, the payer accepted first) and
   `Swoosh::PaymentAlreadyCancelled` (RP08, a second cancel) rather than one `RequestError`: Swish

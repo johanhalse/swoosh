@@ -286,8 +286,30 @@ class SwooshCertificateTest < Minitest::Test
     assert_includes chain, "Nordea Root CA v2 for Swish"
   end
 
-  def test_ssl_context_is_built_from_the_certificate_chain
-    assert_kind_of OpenSSL::SSL::SSLContext, @main.ssl_context
+  def test_a_connection_carries_the_merchant_certificate_and_key
+    http = @main.connection(URI.parse(@main.url))
+
+    assert_predicate http, :use_ssl?
+    assert_equal @main.cert.certificate, http.cert
+    assert_equal @main.cert.key.to_pem, http.key.to_pem
+  end
+
+  # Swish does not hold the Nordea intermediates, so our client certificate
+  # does not chain without them.
+  def test_a_connection_sends_the_intermediates_that_vouch_for_the_certificate
+    chain = @main.connection(URI.parse(@main.url)).extra_chain_cert
+    names = chain.map { |c| c.subject.to_a.assoc("CN")[1] }
+
+    assert_equal ["Nordea Customer CA1 v2 for Swish", "Nordea Root CA v2 for Swish"], names
+  end
+
+  # The other direction, and the one that used to be missing: without it the
+  # merchant certificate goes to whatever answers on the far end.
+  def test_a_connection_verifies_swish_against_the_bundled_root
+    http = @main.connection(URI.parse(@main.url))
+
+    assert_equal OpenSSL::SSL::VERIFY_PEER, http.verify_mode
+    assert_equal Swoosh::Certificates::BUNDLED_ROOT_CA, http.ca_file
   end
 
   private
@@ -342,13 +364,16 @@ class SwooshCreatePaymentTest < Minitest::Test
   end
 
   def test_swish_creates_the_payment_and_returns_its_location
-    response = VCR.use_cassette("create_payment") do
-      HTTP.headers(accept: "application/json")
-          .put("#{@main.url}/#{@main.uuid}", ssl_context: @main.ssl_context, json: @main.data(100, message: "Kaffe"))
-    end
+    uri = URI.parse("#{@main.url}/#{@main.uuid}")
+    request = Net::HTTP::Put.new(uri)
+    request["Accept"] = "application/json"
+    request["Content-Type"] = "application/json"
+    request.body = JSON.generate(@main.data(100, message: "Kaffe"))
 
-    assert_equal 201, response.status.code
-    assert_match %r{/api/v1/paymentrequests/[0-9A-F]{32}\z}, response.headers["Location"]
+    response = VCR.use_cassette("create_payment") { @main.connection(uri).request(request) }
+
+    assert_equal 201, response.code.to_i
+    assert_match %r{/api/v1/paymentrequests/[0-9A-F]{32}\z}, response["Location"]
   end
 
   def test_generate_payment_returns_a_payment_carrying_the_id_we_generated

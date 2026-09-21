@@ -33,6 +33,10 @@ Two conveniences worth knowing:
 
 The DigiCert root CA that signs the Swish endpoints ships with the gem, so you
 don't need to supply one. Override it with `root_ca_path` if that ever changes.
+It is the trust anchor Swoosh verifies *Swish* by, under `VERIFY_PEER` -- the
+merchant certificate authenticates you to them, and this authenticates them to
+you. Point it at the wrong root and the handshake fails rather than falling back
+to the system store.
 
 ## Rails
 
@@ -324,6 +328,11 @@ Losing a token costs the payer one extra tap; nothing about it is load-bearing.
 
 Statuses are deliberately **not** cached -- caching a `CREATED` would make your
 poller report stale results for a payment that has already settled.
+
+## Dependencies
+
+None. Swoosh talks to Swish with `net/http` from the standard library, so adding
+it to an application pulls in nothing else.
 
 ## Without Rails
 

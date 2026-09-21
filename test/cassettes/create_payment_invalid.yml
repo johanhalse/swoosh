@@ -2,36 +2,34 @@
 http_interactions:
 - request:
     method: put
-    uri: https://mss.cpc.getswish.net/swish-cpcapi/api/v2/paymentrequests/B508E9D032FC443D8D9AC33DB0163785
+    uri: https://mss.cpc.getswish.net/swish-cpcapi/api/v2/paymentrequests/A53E0B4428ED457095A26726897D81DA
     body:
       encoding: UTF-8
       string: '{"payeeAlias":"1231181189","callbackUrl":"https://example.com/cb","amount":50,"currency":"SEK","payerAlias":"nope"}'
     headers:
+      Accept-Encoding:
+      - gzip;q=1.0,deflate;q=0.6,identity;q=0.3
       Accept:
       - application/json
-      Connection:
-      - close
-      Content-Type:
-      - application/json; charset=utf-8
+      User-Agent:
+      - Ruby
       Host:
       - mss.cpc.getswish.net
-      User-Agent:
-      - http.rb/6.0.4
+      Content-Type:
+      - application/json
   response:
     status:
       code: 422
-      message: Unprocessable Entity
+      message: ''
     headers:
       Content-Type:
       - application/json
       Transfer-Encoding:
       - chunked
       Date:
-      - Mon, 21 Sep 2026 09:09:42 GMT
-      Connection:
-      - close
+      - Mon, 21 Sep 2026 10:57:27 GMT
     body:
       encoding: UTF-8
       string: '[{"errorCode":"BE18","errorMessage":"Payer alias is invalid","additionalInformation":""}]'
-  recorded_at: Mon, 21 Sep 2026 09:09:42 GMT
+  recorded_at: Mon, 21 Sep 2026 10:57:27 GMT
 recorded_with: VCR 6.4.0

@@ -33,10 +33,24 @@ module Swoosh
       @root_ca ||= OpenSSL::X509::Certificate.new(File.read(root_ca_path))
     end
 
-    def ssl_context
-      OpenSSL::SSL::SSLContext.new.tap do |ctx|
-        ctx.add_certificate(cert.certificate, cert.key, cert.ca_certs.push(root_ca))
-      end
+    # Net::HTTP builds its own SSL context internally rather than accepting one,
+    # so the pieces go onto the connection:
+    #
+    #   cert / key       the merchant certificate Swish authenticates us by
+    #   extra_chain_cert the Nordea intermediates that vouch for it, which Swish
+    #                    needs because it does not hold them itself
+    #   ca_file          the root we verify *Swish* by -- the other direction
+    #
+    # Both directions matter. Sending the merchant credential to whatever
+    # answers on the far end, unverified, would be worse than not sending it.
+    def configure_ssl(http)
+      http.use_ssl = true
+      http.cert = cert.certificate
+      http.key = cert.key
+      http.extra_chain_cert = cert.ca_certs
+      http.ca_file = root_ca_path
+      http.verify_mode = OpenSSL::SSL::VERIFY_PEER
+      http
     end
 
     # <cert_dir>/swish_test.p12 or <cert_dir>/swish_production.p12

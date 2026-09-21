@@ -2,39 +2,36 @@
 http_interactions:
 - request:
     method: put
-    uri: https://mss.cpc.getswish.net/swish-cpcapi/api/v2/paymentrequests/308336F6A5A64350B73EA5DB33186ED0
+    uri: https://mss.cpc.getswish.net/swish-cpcapi/api/v2/paymentrequests/0CB5020A92CF4C7BA7482C7070D8A220
     body:
       encoding: UTF-8
-      string: '{"payeeAlias":"1231181189","callbackUrl":"https://example.com/cb","amount":199,"currency":"SEK","message":"Order
-        1","payeePaymentReference":"ABC123"}'
+      string: '{"payeeAlias":"1231181189","callbackUrl":"https://example.com/cb","amount":199,"currency":"SEK","payeePaymentReference":"ABC123"}'
     headers:
+      Accept-Encoding:
+      - gzip;q=1.0,deflate;q=0.6,identity;q=0.3
       Accept:
       - application/json
-      Connection:
-      - close
-      Content-Type:
-      - application/json; charset=utf-8
+      User-Agent:
+      - Ruby
       Host:
       - mss.cpc.getswish.net
-      User-Agent:
-      - http.rb/6.0.4
+      Content-Type:
+      - application/json
   response:
     status:
       code: 201
-      message: Created
+      message: ''
     headers:
       Location:
-      - https://mss.cpc.getswish.net/swish-cpcapi/api/v1/paymentrequests/308336F6A5A64350B73EA5DB33186ED0
+      - https://mss.cpc.getswish.net/swish-cpcapi/api/v1/paymentrequests/0CB5020A92CF4C7BA7482C7070D8A220
       Paymentrequesttoken:
-      - 2c75e3a810a24e1fbe320da4c1327956
+      - d2b79b764fb94905a3e7271ce55ee62e
       Content-Length:
       - '0'
       Date:
-      - Mon, 21 Sep 2026 09:09:41 GMT
-      Connection:
-      - close
+      - Mon, 21 Sep 2026 10:57:27 GMT
     body:
-      encoding: ASCII-8BIT
+      encoding: UTF-8
       string: ''
-  recorded_at: Mon, 21 Sep 2026 09:09:41 GMT
+  recorded_at: Mon, 21 Sep 2026 10:57:27 GMT
 recorded_with: VCR 6.4.0

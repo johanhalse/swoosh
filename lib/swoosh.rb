@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
-require "http"
 require "json"
+require "net/http"
 require "openssl"
 require "securerandom"
 require "uri"
@@ -65,10 +65,18 @@ module Swoosh
     TEST_LOOKUP_URL = "https://mss.cpc.getswish.net/swish-cpcapi/api/v1/paymentrequests"
     PRODUCTION_LOOKUP_URL = "https://cpc.getswish.net/swish-cpcapi/api/v1/paymentrequests"
 
+    JSON_CONTENT_TYPE = "application/json"
+
     # Cancelling is a JSON Patch against the payment's status, not a body of its
     # own, and Swish rejects it with a 415 under any other content type.
     JSON_PATCH_CONTENT_TYPE = "application/json-patch+json"
     CANCEL_PATCH = [{ op: "replace", path: "/status", value: "cancelled" }].freeze
+
+    REQUEST_CLASSES = {
+      get: Net::HTTP::Get,
+      put: Net::HTTP::Put,
+      patch: Net::HTTP::Patch
+    }.freeze
 
     attr_reader :configuration, :certificates, :token_store
 
@@ -88,15 +96,17 @@ module Swoosh
     # back carrying a token; supply one and Swish notifies that number instead.
     def generate_payment(amount, **options)
       id = uuid
-      response = request(:put, "#{url}/#{id}", json: data(amount, **options))
-      token = response.headers["PaymentRequestToken"]
+      response = request(:put, "#{url}/#{id}", body: JSON.generate(data(amount, **options)))
+      # Net::HTTP matches header names case-insensitively, which matters: Swish
+      # sends this back as "Paymentrequesttoken".
+      token = response["PaymentRequestToken"]
       token_store.write(id, token)
 
       Payment.new({ "id" => id, "status" => Payment::CREATED }, token: token)
     end
 
     def find_payment(id)
-      Payment.from_json(request(:get, "#{lookup_url}/#{id}").to_s)
+      Payment.from_json(request(:get, "#{lookup_url}/#{id}").body.to_s)
     end
 
     # Withdraws a payment request the payer hasn't answered yet, so an abandoned
@@ -110,14 +120,14 @@ module Swoosh
     def cancel_payment(id)
       response = request(
         :patch, "#{lookup_url}/#{id}",
-        headers: { content_type: JSON_PATCH_CONTENT_TYPE },
-        body: JSON.generate(CANCEL_PATCH)
+        body: JSON.generate(CANCEL_PATCH),
+        content_type: JSON_PATCH_CONTENT_TYPE
       )
       # The token dies with the request; keeping it would let token_for hand back
       # something that still renders a QR nobody can pay.
       token_store.delete(id)
 
-      Payment.from_json(response.to_s)
+      Payment.from_json(response.body.to_s)
     end
 
     # The token stored when the payment was created, or nil. Nil means "create a
@@ -132,16 +142,31 @@ module Swoosh
 
     def cert = certificates.cert
     def root_cert = certificates.root_ca
-    def ssl_context = certificates.ssl_context
+
+    # A connection carrying the merchant certificate, ready to issue one
+    # request. Net::HTTP opens and closes it around #request on its own.
+    def connection(uri)
+      certificates.configure_ssl(Net::HTTP.new(uri.host, uri.port))
+    end
 
     private
 
-    def request(verb, target, headers: {}, **options)
-      response = HTTP.headers({ accept: "application/json" }.merge(headers))
-                     .public_send(verb, target, ssl_context: ssl_context, **options)
-      return response if response.status.success?
+    def request(verb, target, body: nil, content_type: JSON_CONTENT_TYPE)
+      uri = URI.parse(target)
+      response = connection(uri).request(build_request(verb, uri, body, content_type))
+      return response if response.is_a?(Net::HTTPSuccess)
 
-      raise ResponseError.for(status: response.status.code, body: response.to_s)
+      raise ResponseError.for(status: response.code.to_i, body: response.body.to_s)
+    end
+
+    def build_request(verb, uri, body, content_type)
+      REQUEST_CLASSES.fetch(verb).new(uri).tap do |request|
+        request["Accept"] = JSON_CONTENT_TYPE
+        next if body.nil?
+
+        request["Content-Type"] = content_type
+        request.body = body
+      end
     end
   end
 end

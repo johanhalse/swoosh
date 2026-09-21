@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
-require "http"
+require "json"
+require "net/http"
+require "uri"
 
 module Swoosh
   # Swish generates payment QR codes from a separate, public host -- no client
@@ -20,13 +22,15 @@ module Swoosh
         FORMATS.include?(format.to_s)
       raise ArgumentError, "Swish requires a QR size of at least #{MIN_SIZE} (got #{size})." if size < MIN_SIZE
 
-      response = HTTP.post(
-        ENDPOINT,
-        json: { token: token, size: size, format: format.to_s, border: border, transparent: transparent }
+      response = Net::HTTP.post(
+        URI.parse(ENDPOINT),
+        JSON.generate({ token: token, size: size, format: format.to_s, border: border, transparent: transparent }),
+        "Content-Type" => "application/json"
       )
-      raise ResponseError.new(status: response.status.code, body: response.to_s) unless response.status.success?
+      raise ResponseError.new(status: response.code.to_i, body: response.body.to_s) unless
+        response.is_a?(Net::HTTPSuccess)
 
-      response.to_s
+      response.body
     end
   end
 end
