@@ -10,3 +10,6 @@
 # Dummy app artifacts
 /test/dummy/log/*.log
 /test/dummy/tmp/
+
+# A gem supports a range of Rubies; let each resolve its own dependencies.
+/Gemfile.lock
