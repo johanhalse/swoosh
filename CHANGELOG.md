@@ -1,4 +1,4 @@
-## [Unreleased]
+## [0.2.0] - 2026-09-21
 
 - Drop the `http` gem and reach Swish with `net/http` from the standard library. Swoosh now has no
   runtime dependencies.
