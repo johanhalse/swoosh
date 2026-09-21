@@ -245,12 +245,34 @@ class SwooshCertificateTest < Minitest::Test
     assert_equal "DigiCert Global Root G2", common_name(@main.root_cert)
   end
 
-  def test_root_ca_is_not_expired
-    assert_operator @main.root_cert.not_after, :>, Time.now
+  # The next four tests are deliberately calendar-dependent. They are the canary
+  # for the certificates this gem ships, so do NOT freeze or travel time around
+  # them: a green suite on an expired bundle means shipping a staging fallback
+  # that cannot complete a TLS handshake.
+  RENEWAL_WARNING_DAYS = 30
+
+  def test_root_ca_has_not_expired
+    assert_operator days_left(@main.root_cert), :>, 0,
+                    "The bundled Swish root CA expired on #{@main.root_cert.not_after.strftime("%Y-%m-%d")}. " \
+                    "Check what signs mss.cpc.getswish.net now and replace certs/Swish_TLS_RootCA.pem."
   end
 
-  def test_merchant_certificate_is_not_expired
-    assert_operator @main.cert.certificate.not_after, :>, Time.now
+  def test_root_ca_is_not_about_to_expire
+    assert_operator days_left(@main.root_cert), :>, RENEWAL_WARNING_DAYS, renewal_warning(@main.root_cert, "root CA")
+  end
+
+  def test_bundled_staging_certificate_has_not_expired
+    cert = @main.cert.certificate
+
+    assert_operator days_left(cert), :>, 0,
+                    "The Swish staging certificates bundled with this gem expired on " \
+                    "#{cert.not_after.strftime("%Y-%m-%d")}. Download a fresh bundle from " \
+                    "developer.swish.nu and replace the files in certs/."
+  end
+
+  def test_bundled_staging_certificate_is_not_about_to_expire
+    assert_operator days_left(@main.cert.certificate), :>, RENEWAL_WARNING_DAYS,
+                    renewal_warning(@main.cert.certificate, "staging certificate bundle")
   end
 
   def test_merchant_private_key_matches_its_certificate
@@ -272,6 +294,16 @@ class SwooshCertificateTest < Minitest::Test
 
   def common_name(cert)
     cert.subject.to_a.assoc("CN")[1]
+  end
+
+  def days_left(cert)
+    ((cert.not_after - Time.now) / 86_400).floor
+  end
+
+  def renewal_warning(cert, label)
+    "The bundled Swish #{label} expires on #{cert.not_after.strftime("%Y-%m-%d")}, " \
+      "in #{days_left(cert)} days. Renew it before it lapses; this test fails " \
+      "#{RENEWAL_WARNING_DAYS} days ahead so the gem never ships a dead certificate"
   end
 end
 

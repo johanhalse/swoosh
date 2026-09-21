@@ -307,6 +307,16 @@ dummy application in `test/dummy`.
 HTTP is recorded with VCR against the Swish staging playground. To re-record,
 delete the cassette in `test/cassettes` and run the suite again.
 
+### The certificate canaries
+
+Four tests in `test/swoosh_test.rb` compare the bundled certificates against the
+real clock, and they are meant to. They fail 30 days before a certificate lapses,
+because a suite that stays green on an expired bundle would ship a staging
+fallback that cannot complete a TLS handshake.
+
+Don't freeze or travel time around them. When one fires, the message tells you
+what to renew and where from. Nothing else in the suite depends on the clock.
+
 ## License
 
 [MIT](https://opensource.org/licenses/MIT).
