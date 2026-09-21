@@ -8,8 +8,14 @@ Gem::Specification.new do |spec|
   spec.authors       = ["Johan Halse"]
   spec.email         = ["johan@hal.se"]
 
-  spec.summary       = "Swish payments for Rails"
-  spec.description   = "Swish payments for Rails"
+  spec.summary       = "Swish payments for Ruby, with first-class Rails support"
+  spec.description   = "Swoosh drives the merchant API behind Swish, the Swedish mobile payment service: " \
+                       "create a payment request, poll it, cancel it, and verify the callback Swish posts " \
+                       "when it settles. It resolves the mutual-TLS certificate your bank issues and " \
+                       "verifies Swish in return, and carries the m-commerce token that app-switch URLs " \
+                       "and QR codes are built from. Rails applications get a railtie and a controller " \
+                       "concern; plain Ruby, Sinatra and Hanami use the same API without them. No runtime " \
+                       "dependencies."
   spec.homepage      = "https://github.com/johanhalse/swoosh"
   spec.license       = "MIT"
   spec.required_ruby_version = ">= 3.2.0"
