@@ -1,6 +1,11 @@
+plugins:
+  - rubocop-minitest
+  - rubocop-rake
+
 AllCops:
-  TargetRubyVersion: 3.0.2
+  TargetRubyVersion: 3.2
   NewCops: enable
+  SuggestExtensions: false
   Exclude:
     - "bin/**/*"
     - "public/**/*"
